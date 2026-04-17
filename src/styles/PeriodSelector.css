@@ -1,0 +1,134 @@
+.period-selector {
+  background: var(--white);
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid rgba(229, 231, 235, 0.6);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.period-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  color: var(--dark);
+}
+
+.period-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.period-header svg {
+  color: #667eea;
+}
+
+.period-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.date-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.date-input-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 180px;
+  min-width: 140px;
+}
+
+.date-input-group label {
+  font-size: 12px;
+  color: #9ca3af;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.date-input {
+  padding: 10px 12px;
+  border: 1px solid rgba(209, 213, 219, 0.8);
+  background: var(--white);
+  color: var(--dark);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.date-input:hover {
+  border-color: #667eea;
+  background: rgba(102, 126, 234, 0.02);
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.08);
+}
+
+.date-separator {
+  color: #d1d5db;
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .period-selector {
+    padding: 18px;
+  }
+
+  .date-input-group {
+    min-width: 120px;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .period-selector {
+    padding: 16px;
+  }
+
+  .date-inputs {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .date-input-group {
+    width: 100%;
+    max-width: 100%;
+    min-width: auto;
+  }
+
+  .date-separator {
+    display: none;
+  }
+
+  .date-input {
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+
+  .period-header h3 {
+    font-size: 14px;
+  }
+}

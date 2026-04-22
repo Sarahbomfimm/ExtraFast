@@ -12,6 +12,16 @@ dist
 dist-ssr
 *.local
 
+# Environment variables
+.env
+.env.*
+
+# Debug snapshots (podem conter dados internos)
+server/debug/
+
+# Script antigo de automação
+public/automation.py
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

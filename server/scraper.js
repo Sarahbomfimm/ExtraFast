@@ -5,12 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 
-const LOGIN_URL =
-  'https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3Fresponse_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26redirect_uri%3Dhttps%253A%252F%252Fpajucarahoteis.hitspms.net%252FCallback%26scope%3Dopenid%2520profile%2520webapi%26nonce%3DN0.93084799808499021767024314808%26state%3D17670243148080.45920599247494753';
+const LOGIN_URL = process.env.HITS_LOGIN_URL ||
+  'https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3Fresponse_type%3Did_token%2520token%26client_id%3DHITS_CLIENT_ID%26redirect_uri%3Dhttps%253A%252F%252FHITS_HOSTNAME%252FCallback%26scope%3Dopenid%2520profile%2520webapi%26nonce%3DN0.93084799808499021767024314808%26state%3D17670243148080.45920599247494753';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DEBUG_DIR = path.join(__dirname, 'debug');
-const HITS_HOSTNAME = 'pajucarahoteis.hitspms.net';
+const HITS_HOSTNAME = process.env.HITS_HOSTNAME || 'pajucarahoteis.hitspms.net';
 const ALL_DEPARTMENTS = [
   'ESPAÇOS COMUNS',
   'RECEPÇÃO',

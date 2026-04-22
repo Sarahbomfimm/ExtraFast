@@ -755,45 +755,57 @@ async function scrapeReport({ username, password, startDate, endDate, department
 
       // Fase 2: Clica em cada botão usando page.click() (eventos reais do browser)
       let deptCount = 0;
-      
-      for (const btnInfo of buttonInfo.buttons) {
-        // Pula se já está ativo
-        if (btnInfo.isActive && !requestAllDepartments) continue;
+
+      // Normaliza a lista de departamentos solicitados para comparação
+      const normalize = (s) =>
+        (s || '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const requestedNormalized = departments.map(normalize);
+
+      // Determina quais botões clicar:
+      // - requestAllDepartments=true → clica em todos os departamentos encontrados
+      // - requestAllDepartments=false → clica apenas nos que estão na lista solicitada
+      const buttonsToClick = requestAllDepartments
+        ? buttonInfo.buttons.filter((b) => !b.isAllBtn)
+        : buttonInfo.buttons.filter((b) => {
+            if (b.isAllBtn) return false;
+            const titleNorm = normalize(b.title);
+            const textNorm = normalize(b.text);
+            return requestedNormalized.some(
+              (req) => titleNorm === req || textNorm === req || titleNorm.includes(req) || textNorm.includes(req)
+            );
+          });
+
+      console.log(`[DEBUG PASSO 10] Botões a clicar: ${buttonsToClick.length} (requestAllDepartments=${requestAllDepartments})`);
+
+      for (const btnInfo of buttonsToClick) {
+        // Pula se já está ativo (evita toggle/desmarcar)
+        if (btnInfo.isActive) {
+          console.log(`[DEBUG PASSO 10] ↷ Já ativo, pulando: ${btnInfo.title}`);
+          deptCount++;
+          continue;
+        }
 
         try {
-          // Cria um seletor único pelo título
-          let selector = `.btn-check[title="${btnInfo.title.replace(/"/g, '\\"')}"]`;
-          
-          // Fallback: se o título for vazio, procura pelo texto
-          if (!btnInfo.title && btnInfo.text) {
-            // Escapa caracteres especiais no seletor
-            const escapedText = btnInfo.text.replace(/"/g, '\\"').replace(/\n/g, ' ').slice(0, 50);
-            selector = `.btn-check:contains('${escapedText}')`;
-          }
+          const selector = `.btn-check[title="${btnInfo.title.replace(/"/g, '\\"')}"]`;
 
-          // Tenta encontrar e clicar o elemento
           try {
             await page.waitForSelector(selector, { visible: true, timeout: 1500 });
           } catch (timeoutErr) {
-            // Se waitForSelector falhar, tenta com a forma alternativa
-            selector = `.btn-check[title="${btnInfo.title.replace(/"/g, '\\"')}"]`;
             if (!btnInfo.title) {
-              // Se não tem title, procura qualquer .btn-check visível
-              const allBtns = await page.$$('.btn-check');
-              console.log(`[DEBUG PASSO 10] Usando fallback: ${allBtns.length} botões disponíveis`);
+              console.log(`[DEBUG PASSO 10] Usando fallback: sem título para ${btnInfo.text.slice(0, 30)}`);
               continue;
             }
           }
 
           // Executa o clique usando page.click() - dispara evento real
           await page.click(selector);
-          console.log(`[DEBUG PASSO 10] ✓ Clicado via page.click(): ${btnInfo.title || btnInfo.text.slice(0, 30)}`);
+          console.log(`[DEBUG PASSO 10] ✓ Clicado via page.click(): ${btnInfo.title}`);
           deptCount++;
 
           // Pequena pausa entre cliques para o Angular processar
           await sleep(250);
         } catch (err) {
-          console.log(`[DEBUG PASSO 10] ✗ Erro ao clicar ${btnInfo.title || btnInfo.text.slice(0, 30)}: ${err.message}`);
+          console.log(`[DEBUG PASSO 10] ✗ Erro ao clicar ${btnInfo.title}: ${err.message}`);
         }
       }
 

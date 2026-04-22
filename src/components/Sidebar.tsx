@@ -1,4 +1,4 @@
-import { Zap, FileText, LogOut, Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Zap, FileText, LogOut, Menu, X, ChevronLeft, ChevronRight, Home } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useState } from 'react';
 import '../styles/Sidebar.css';
@@ -48,7 +48,7 @@ export function Sidebar({ activeMenu, onMenuChange, isCollapsed, onCollapsedChan
                 onClick={() => handleMenuClick('home')}
                 title="Dashboard"
               >
-                <span className="nav-icon">📊</span>
+                <Home size={20} />
                 <span className="nav-text">Dashboard</span>
               </button>
             </li>

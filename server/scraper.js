@@ -11,6 +11,31 @@ const LOGIN_URL =
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DEBUG_DIR = path.join(__dirname, 'debug');
 const HITS_HOSTNAME = 'pajucarahoteis.hitspms.net';
+const ALL_DEPARTMENTS = [
+  'ESPAÇOS COMUNS',
+  'RECEPÇÃO',
+  'FRIGOBAR',
+  'RESTAURANTE',
+  'ROOM SERVICE',
+  'BAR DA COBERTURA',
+  'LAVANDERIA',
+  'GOVERNANÇA',
+  'COMERCIAL',
+  'FINANCEIRO',
+  'DIRETORIA',
+  'CONTROLE',
+  'RH',
+  'MANUTENÇÃO',
+  'ROUPARIA',
+  'CAFÉ DA MANHÃ',
+  'PAJUCARA EXPRESS',
+  'ALMOXARIFADO DA MANUTENÇÃO',
+  'COZINHA',
+  'ADMINISTRATIVO',
+  'OBRAS E REFORMAS',
+  'REFEITÓRIO',
+  'EVENTOS',
+];
 
 function isVisibleInPage(el) {
   if (!el) return false;
@@ -19,25 +44,57 @@ function isVisibleInPage(el) {
   return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
 }
 
-function formatDateDDMMYY(isoString) {
-  const d = new Date(isoString);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = String(d.getFullYear()).slice(-2);
-  return `${day}/${month}/${year}`;
+function parseDateParts(value) {
+  const raw = String(value || '').trim();
+
+  // Fix: Pega apenas os primeiros 10 caracteres (YYYY-MM-DD) para evitar fuso horário de strings ISO completas
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    return { year: Number(ymd[1]), month: Number(ymd[2]), day: Number(ymd[3]) };
+  }
+
+  const dmy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmy) {
+    return { year: Number(dmy[3]), month: Number(dmy[2]), day: Number(dmy[1]) };
+  }
+
+  const d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) {
+    return {
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+    };
+  }
+
+  throw new Error(`Invalid date value: ${value}`);
 }
 
-function formatDateYYYYMMDD(isoString) {
-  const d = new Date(isoString);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${year}-${month}-${day}`;
+function formatDateDDMMYY(input) {
+  const { year, month, day } = parseDateParts(input);
+  return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${String(year).slice(-2)}`;
+}
+
+function formatDateYYYYMMDD(input) {
+  const { year, month, day } = parseDateParts(input);
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function normalizeText(value) {
+  return (value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function toCSV(headers, rows) {
-  const escape = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-  const lines = [headers.map(escape).join(',')];
+  const escape = (v) => {
+    const s = String(v == null ? '' : v);
+    return (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r'))
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(',')];
   for (const row of rows) {
     lines.push(row.map(escape).join(','));
   }
@@ -198,7 +255,7 @@ async function detectLoginState(page) {
         const isVisible = (el) => {
           if (!el) return false;
           const style = window.getComputedStyle(el);
-          const rect = el.getBoundingClientRect();
+          const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 1 };
           return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
         };
 
@@ -250,6 +307,7 @@ async function scrapeReport({ username, password, startDate, endDate, department
 
   const browser = await puppeteer.launch({
     headless: true,
+    protocolTimeout: 600000,
     args: browserArgs,
   });
 
@@ -358,116 +416,248 @@ async function scrapeReport({ username, password, startDate, endDate, department
     // ── PASSO 7: Clicar em Requisição Interna ─────────────────────────────────
     onProgress(58, 'Abrindo Requisição Interna...');
     await clickVisible(page, '#menuinternalRequisition', 'Menu Requisição Interna não estava clicável.');
-    await sleep(2500);
-
-    // ── PASSO 8: Clicar no botão de relatório de impressão ───────────────────
-    onProgress(65, 'Abrindo painel de relatório...');
-    // O botão tem class btn-cancel-icon e ícone "print"
-    await clickVisible(
-      page,
-      ['button[ng-click="openInternalRequisitionReport()"]', '.btn-cancel-icon'],
-      'Botão de relatório não estava clicável.'
-    );
     await sleep(2000);
 
-    // ── PASSO 9: Configurar filtro de período ─────────────────────────────────
-    onProgress(72, 'Configurando período do relatório...');
-    await clickVisibleByText(
-      page,
-      ['.button-filter', 'button'],
-      ['período', 'periodo'],
-      'Filtro de período não estava disponível.'
-    );
-    await sleep(1000);
-
-    const startISO = formatDateYYYYMMDD(startDate);
-    const endISO = formatDateYYYYMMDD(endDate);
-    const startDDMMYY = formatDateDDMMYY(startDate);
-    const endDDMMYY = formatDateDDMMYY(endDate);
-
-    // Tenta preencher inputs de data no modal (tipo date ou texto mascarado)
-    await page.evaluate(
-      (startYMD, endYMD, startDMY, endDMY) => {
-        const inputs = Array.from(document.querySelectorAll('input[type="date"], input[type="text"]')).filter(
-          (el) => {
-            const ph = (el.placeholder || '').toLowerCase();
-            const cls = (el.className || '').toLowerCase();
-            return (
-              ph.includes('/') || ph.includes('data') || ph.includes('date') ||
-              cls.includes('date') || cls.includes('data') || el.type === 'date'
-            );
-          }
-        );
-
-        const setVal = (el, val) => {
-          try {
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(el, val);
-          } catch (_) { el.value = val; }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          try { angular.element(el).triggerHandler('change'); } catch (_) {} // eslint-disable-line no-undef
-        };
-
-        if (inputs.length >= 2) {
-          const val0 = inputs[0].type === 'date' ? startYMD : startDMY;
-          const val1 = inputs[1].type === 'date' ? endYMD : endDMY;
-          setVal(inputs[0], val0);
-          setVal(inputs[1], val1);
-        }
+    // Aguarda a aba de requisição ficar visível antes de continuar
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById('internalRequisition');
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden';
       },
-      startISO,
-      endISO,
-      startDDMMYY,
-      endDDMMYY
-    );
+      { timeout: 20000 }
+    ).catch((err) => {
+      throw new Error(`SCRAPE_ERROR: Aba de requisição interna não apareceu. ${err.message}`);
+    });
+    await sleep(1500);
 
-    await sleep(500);
-
-    // Confirmar seleção de período
-    const periodConfirmSelectors = [
-      'button[ng-click*="confirm"]',
-      'button[ng-click*="apply"]',
-      'button[ng-click*="ok"]',
-      '.btn-primary',
-      '.btn-apply',
-      '.btn-ok',
+    // ── PASSO 8: Clicar no botão de relatório de compra ───────────────────────
+    onProgress(65, 'Abrindo relatório de requisições...');
+    // Baseado no automation.py: button[one-tltranslate="lblPurchaseRequisition"]
+    const purchaseReqBtnSelectors = [
+      'button[one-tltranslate="lblPurchaseRequisition"]',
+      'button:has(one-translate[resource="lblPurchaseRequisition"])',
     ];
-    const hasPeriodConfirm = await hasVisibleSelector(page, periodConfirmSelectors);
-    if (hasPeriodConfirm) {
-      await clickVisible(page, periodConfirmSelectors, 'Botão de confirmação do período não estava clicável.');
-      await sleep(1000);
-    } else {
-      // Tenta pressionar Enter para confirmar
-      await page.keyboard.press('Enter');
-      await sleep(1000);
-    }
-
-    // ── PASSO 10: Configurar filtro de departamento ───────────────────────────
-    onProgress(80, `Selecionando ${departments.length} departamento(s)...`);
-
-    // Encontra e clica no botão/label "Departamento"
-    const deptBtnClicked = await page.evaluate(() => {
+    
+    const btnFound = await page.evaluate((sels) => {
       const isVisible = (el) => {
         const style = window.getComputedStyle(el);
         const rect = el.getBoundingClientRect();
         return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
       };
 
+      for (const sel of sels) {
+        const btn = document.querySelector(sel);
+        if (btn && isVisible(btn)) {
+          btn.click();
+          return true;
+        }
+      }
+      return false;
+    }, purchaseReqBtnSelectors);
+
+    if (!btnFound) {
+      throw new Error('SCRAPE_ERROR: Botão de relatório de requisições não encontrado.');
+    }
+    await sleep(3000);
+
+    // ── PASSO 9: Configurar filtro de período ─────────────────────────────────
+    onProgress(72, 'Configurando período do relatório...');
+
+    await clickVisibleByText(
+      page,
+      ['button.button-filter', 'button', '.button-filter'],
+      ['período', 'periodo'],
+      'Botão de filtro de período não foi encontrado.'
+    );
+    await sleep(1500);
+
+    const startDDMMYY = formatDateDDMMYY(startDate);
+    const endDDMMYY = formatDateDDMMYY(endDate);
+    const periodRange = `${startDDMMYY} - ${endDDMMYY}`;
+
+    console.log(`[PASSO 9] Preenchendo período: ${periodRange}`);
+
+    // HITS usa campo mascarado: limita a busca aos campos de data para evitar concatenacoes em inputs incorretos
+    await page.waitForSelector('input.date-picker, input[placeholder*="/"]', { timeout: 12000 }).catch(() => {});
+
+    const candidateInputs = await page.$$('input.date-picker, input[placeholder*="/"]');
+    let finalValue = '';
+    let datesFilled = false;
+
+    const isDateLikeInput = async (inputHandle) => page.evaluate((el) => {
+      if (!el) return false;
+      const cls = (el.className || '').toLowerCase();
+      const id = (el.id || '').toLowerCase();
+      const name = (el.name || '').toLowerCase();
+      const ph = (el.placeholder || '').toLowerCase();
+      return (
+        cls.includes('date-picker') ||
+        cls.includes('date') ||
+        id.includes('date') ||
+        name.includes('date') ||
+        ph.includes('/')
+      );
+    }, inputHandle).catch(() => false);
+
+    const normalizePeriod = (s) => (s || '').replace(/\s+/g, ' ').trim();
+
+    for (const input of candidateInputs) {
+      const isDateLike = await isDateLikeInput(input);
+      if (!isDateLike) continue;
+
+      // Primeiro: seta valor de forma direta para evitar append indevido de mascaras antigas
+      await page.evaluate((el, value) => {
+        if (!el) return;
+        el.focus();
+        el.value = '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.value = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+      }, input, periodRange).catch(() => {});
+
+      await sleep(350);
+      finalValue = await page.evaluate((el) => (el.value || '').trim(), input).catch(() => '');
+
+      // Fallback com teclado caso a tela exija digitacao para confirmar mascara
+      if (!finalValue || !normalizePeriod(finalValue).includes(startDDMMYY) || !normalizePeriod(finalValue).includes(endDDMMYY)) {
+        try {
+          await input.click({ clickCount: 3 });
+          await page.keyboard.press('Control+A').catch(() => {});
+          await page.keyboard.press('Backspace').catch(() => {});
+          await input.type(periodRange, { delay: 45 });
+          await page.keyboard.press('Enter').catch(() => {});
+          await sleep(450);
+        } catch (_) {}
+
+        finalValue = await page.evaluate((el) => (el.value || '').trim(), input).catch(() => '');
+      }
+
+      const normFinal = normalizePeriod(finalValue);
+      if (normFinal.includes(startDDMMYY) && normFinal.includes(endDDMMYY)) {
+        datesFilled = true;
+        break;
+      }
+    }
+
+    console.log(`[DEBUG] Campo de periodo preenchido: ${finalValue}`);
+
+    if (!datesFilled) {
+      throw new Error(`SCRAPE_ERROR: Não foi possível preencher o campo de período no formato esperado (${periodRange}).`);
+    }
+
+    await sleep(1000);
+
+    // Confirma a seleção de período
+    const confirmClicked = await page.evaluate(() => {
+      const isVisible = (el) => {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 1 };
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      };
+
+      // Prioriza o padrão usado no fluxo manual/Playwright
+      const blueButtons = Array.from(document.querySelectorAll('button.btn-blue'));
+      for (const btn of blueButtons) {
+        if (!isVisible(btn)) continue;
+        const icon = btn.querySelector('em.material-icons');
+        const iconText = ((icon && icon.textContent) || '').trim().toLowerCase();
+        if (iconText === 'check' || iconText === 'done') {
+          btn.click();
+          return true;
+        }
+      }
+
+      // Procura por botão com ícone "check" (material-icons)
+      const buttons = Array.from(document.querySelectorAll('button'));
+      for (const btn of buttons) {
+        if (!isVisible(btn)) continue;
+        const hasCheck = btn.querySelector('em.material-icons');
+        if (hasCheck && (hasCheck.textContent === 'check' || hasCheck.textContent === 'done')) {
+          btn.click();
+          return true;
+        }
+      }
+
+      // Fallback: tenta qualquer botão azul/primário
+      const primaryBtns = document.querySelectorAll('.btn-blue, .btn-primary, button[ng-click*="confirm"], button[ng-click*="apply"]');
+      for (const btn of primaryBtns) {
+        if (isVisible(btn)) {
+          btn.click();
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    if (!confirmClicked) {
+      // Tenta Enter como última opção
+      await page.keyboard.press('Enter');
+    }
+    await sleep(1500);
+
+    // ── PASSO 10: Configurar filtro de departamento ───────────────────────────
+    onProgress(80, `Selecionando ${departments.length} departamento(s)...`);
+    const normalizedDepartments = departments.map(normalizeText);
+    const allDepartmentsNormalized = ALL_DEPARTMENTS.map(normalizeText);
+    const requestAllDepartments =
+      normalizedDepartments.length >= allDepartmentsNormalized.length - 1 ||
+      (
+        normalizedDepartments.length === allDepartmentsNormalized.length &&
+        allDepartmentsNormalized.every((dept) => normalizedDepartments.includes(dept))
+      );
+
+    console.log(
+      `[PASSO 10] requestAllDepartments=${requestAllDepartments} selected=${normalizedDepartments.length} totalKnown=${allDepartmentsNormalized.length}`
+    );
+
+    // Clica no botão de departamento para abrir o modal
+    const deptOpened = await page.evaluate(() => {
+      const isVisible = (el) => {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      };
+
+      const findClickableAncestor = (el) => {
+        if (!el) return null;
+        return (
+          el.closest('button, [role="button"], [ng-click], .btn, .btn-filter, .button-filter, [class*="filter"], [class*="dropdown"], [class*="select"]') ||
+          el.parentElement
+        );
+      };
+
+      // Tenta primeiro com one-translate
       const ot = document.querySelector('one-translate[resource="lblDepartment"]');
       if (ot) {
-        const btn = ot.closest('button') || ot.parentElement;
-        if (btn && isVisible(btn)) { btn.click(); return true; }
+        const target = findClickableAncestor(ot);
+        if (target && isVisible(target)) {
+          target.click();
+          return true;
+        }
+
+        // Fallback: tenta clicar no próprio label traduzido
         if (isVisible(ot)) {
           ot.click();
           return true;
         }
       }
 
-      const allBtns = document.querySelectorAll('button, .button-filter');
-      for (const btn of allBtns) {
-        if (!isVisible(btn)) continue;
-        if (btn.textContent.trim().toLowerCase().includes('departamento')) {
+      // Procura por botão/filtro com texto "Departamento"
+      const buttons = Array.from(
+        document.querySelectorAll(
+          'button, .button-filter, .options-filter, [ng-click*="openChangeFilter"], [class*="filter"]'
+        )
+      );
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').toLowerCase();
+        if (isVisible(btn) && text.includes('departamento')) {
           btn.click();
           return true;
         }
@@ -475,75 +665,376 @@ async function scrapeReport({ username, password, startDate, endDate, department
       return false;
     });
 
-    if (deptBtnClicked) {
+    if (!deptOpened) {
+      // Se não conseguir abrir, apenas loga o aviso mas continua
+      console.log('[PASSO 10] Botão de departamento não encontrado, continuando...');
+    } else {
+      await sleep(1500);
+
+      // Captura screenshot do modal para diagnóstico
+      await captureDebugSnapshot(page, 'dept-filter-modal');
+      console.log('[PASSO 10] Screenshot do modal de departamentos capturado (dept-filter-modal)');
+
+      // Captura também HTML bruto do modal para análise
+      const modalHTML = await page.evaluate(() => {
+        const modal = document.querySelector('[class*="modal"], [role="dialog"], .modal-body, .modal-content');
+        return modal ? modal.outerHTML.slice(0, 5000) : 'Modal não encontrado';
+      });
+      console.log(`[DEBUG PASSO 10] Modal HTML (primeiros 5000 chars):\n${modalHTML}`);
+
+      // Verifica se o modal realmente abriu
+      const modalOpen = await page.evaluate(() => {
+        const modals = Array.from(document.querySelectorAll('[class*="modal"], [class*="dialog"], [role="dialog"], .modal-body, .modal-content'));
+        return modals.some((el) => {
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden';
+        });
+      });
+      console.log(`[PASSO 10] Modal visível: ${modalOpen}`);
+
+      await page
+        .waitForFunction(() => {
+          const isVisible = (el) => {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 1 };
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+          };
+
+          const hasVisibleFilterPanel = Array.from(
+            document.querySelectorAll('#one-search-modal-content, .one-search-modal-content, [id*="one-search-modal-content"]')
+          ).some(isVisible);
+
+          // Verifica se existem opções carregadas
+          const options = document.querySelectorAll('.btn-check, .btn-check-card, [ng-repeat*="selection"]');
+          
+          // CRUCIAL: Verifica se o HITS não está com um bloqueio de interface (Loading)
+          const isBlocked = !!document.querySelector('.block-ui-visible, .block-ui-active, [aria-busy="true"]');
+          const isLoading = !!document.querySelector('.loading-bar, .spinner, [class*="loading"]');
+          
+          // Só prossegue se o painel existir, houver opções e o bloqueio de UI sumiu
+          return hasVisibleFilterPanel && options.length > 0 && !isBlocked && !isLoading;
+        }, { timeout: 12000 })
+        .catch(() => {});
+      await sleep(1000); // Pausa extra para segurança pós-carregamento
+
+      // Fase 1: Encontra os botões e retorna seus seletores/títulos
+      const buttonInfo = await page.evaluate(() => {
+        const normalize = (s) =>
+          (s || '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+
+        const root = document.querySelector('#one-search-modal-content') ||
+                     document.querySelector('.one-search-modal-content') ||
+                     document.querySelector('[id*="one-search-modal-content"]') ||
+                     document;
+
+        // Encontra todos os botões visíveis
+        const allButtons = Array.from(root.querySelectorAll('.btn-check, [ng-repeat*="selection"]')).filter(isVisible);
+        console.log(`[DEBUG PASSO 10] Total de botões encontrados: ${allButtons.length}`);
+
+        // Extrai informações dos botões (title, texto, se está ativo)
+        const buttons = allButtons.map((btn) => ({
+          title: (btn.getAttribute('title') || '').trim(),
+          text: (btn.textContent || '').trim(),
+          isActive: btn.classList.contains('active'),
+          isAllBtn: normalize(btn.textContent || '').includes('TODOS'),
+        })).filter((info) => info.title || info.text); // Remove botões sem identificação
+
+        console.log(`[DEBUG PASSO 10] Botões extraídos: ${buttons.length}`);
+        return { totalCount: allButtons.length, buttons };
+      });
+
+      console.log(`[DEBUG PASSO 10] Fase 1 completa: encontrados ${buttonInfo.totalCount} botões, ${buttonInfo.buttons.length} com info válida`);
+
+      // Fase 2: Clica em cada botão usando page.click() (eventos reais do browser)
+      let deptCount = 0;
+      
+      for (const btnInfo of buttonInfo.buttons) {
+        // Pula se já está ativo
+        if (btnInfo.isActive && !requestAllDepartments) continue;
+
+        try {
+          // Cria um seletor único pelo título
+          let selector = `.btn-check[title="${btnInfo.title.replace(/"/g, '\\"')}"]`;
+          
+          // Fallback: se o título for vazio, procura pelo texto
+          if (!btnInfo.title && btnInfo.text) {
+            // Escapa caracteres especiais no seletor
+            const escapedText = btnInfo.text.replace(/"/g, '\\"').replace(/\n/g, ' ').slice(0, 50);
+            selector = `.btn-check:contains('${escapedText}')`;
+          }
+
+          // Tenta encontrar e clicar o elemento
+          try {
+            await page.waitForSelector(selector, { visible: true, timeout: 1500 });
+          } catch (timeoutErr) {
+            // Se waitForSelector falhar, tenta com a forma alternativa
+            selector = `.btn-check[title="${btnInfo.title.replace(/"/g, '\\"')}"]`;
+            if (!btnInfo.title) {
+              // Se não tem title, procura qualquer .btn-check visível
+              const allBtns = await page.$$('.btn-check');
+              console.log(`[DEBUG PASSO 10] Usando fallback: ${allBtns.length} botões disponíveis`);
+              continue;
+            }
+          }
+
+          // Executa o clique usando page.click() - dispara evento real
+          await page.click(selector);
+          console.log(`[DEBUG PASSO 10] ✓ Clicado via page.click(): ${btnInfo.title || btnInfo.text.slice(0, 30)}`);
+          deptCount++;
+
+          // Pequena pausa entre cliques para o Angular processar
+          await sleep(250);
+        } catch (err) {
+          console.log(`[DEBUG PASSO 10] ✗ Erro ao clicar ${btnInfo.title || btnInfo.text.slice(0, 30)}: ${err.message}`);
+        }
+      }
+
+      console.log(`[DEBUG PASSO 10] Fase 2 completa: clicou em ${deptCount} botões via page.click()`);
+
+      // Pausa para o Angular processar os cliques
       await sleep(1000);
 
-      // Seleciona cada departamento pelo texto nos checkboxes/opções
-      await page.evaluate((deptList) => {
-        const normalize = (s) => s.trim().toUpperCase();
+      // Log de diagnóstico ANTES de testar deptCount
+      console.log(`[DEBUG PASSO 10] deptCount=${deptCount}, requestAllDepartments=${requestAllDepartments}`);
 
-        // Tenta checkboxes com labels
-        const labels = document.querySelectorAll('label');
-        for (const label of labels) {
-          const text = normalize(label.textContent);
-          if (deptList.some((d) => normalize(d) === text || text.includes(normalize(d)))) {
-            const cb = label.querySelector('input[type="checkbox"]');
-            if (cb && !cb.checked) cb.click();
-            else if (!cb) label.click();
-          }
-        }
+      if (requestAllDepartments && deptCount === 0) {
+        // Captura estrutura do DOM para diagnóstico
+        const domDiagnostic = await page.evaluate(() => {
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const buttonsSnapshot = buttons.map((btn) => ({
+            class: btn.className,
+            id: btn.id,
+            title: btn.getAttribute('title'),
+            textContent: (btn.textContent || '').slice(0, 50),
+            visible: window.getComputedStyle(btn).display !== 'none',
+            dataAttrs: Array.from(btn.attributes)
+              .filter((attr) => attr.name.startsWith('data-') || attr.name.startsWith('ng-'))
+              .map((attr) => `${attr.name}=${attr.value}`)
+              .join('|'),
+          }));
 
-        // Tenta opções em lista (li, div com texto de departamento)
-        const items = document.querySelectorAll('li, .list-item, .option-item, [ng-repeat*="dept"], [ng-repeat*="department"]');
-        for (const item of items) {
-          const text = normalize(item.textContent);
-          if (deptList.some((d) => normalize(d) === text || text.includes(normalize(d)))) {
-            const cb = item.querySelector('input[type="checkbox"]');
-            if (cb && !cb.checked) cb.click();
-            else if (!cb) item.click();
-          }
-        }
-      }, departments);
+          const allElements = Array.from(document.querySelectorAll('[ng-repeat*="selection"], [class*="check"], [class*="filter"]'));
+          console.log(`[DIAGNOSTIC] Total buttons on page: ${buttons.length}`);
+          console.log(`[DIAGNOSTIC] Relevant elements (ng-repeat/check/filter): ${allElements.length}`);
+          console.log(`[DIAGNOSTIC] First 10 buttons: ${JSON.stringify(buttonsSnapshot.slice(0, 10))}`);
 
-      await sleep(500);
+          return { totalButtons: buttons.length, buttonsSnapshot, allElementsCount: allElements.length };
+        });
+
+        console.log(`[DIAGNOSTIC] DOM Info:`, domDiagnostic);
+
+        // NÃO lance erro ainda - deixa continuar para capturar mais info
+        console.log(`[PASSO 10] ⚠️ Aviso: 0 departamentos foram clicados. Modal pode não ter estrutura esperada.`);
+      }
+
+      const activeDeptInfo = await page.evaluate(() => {
+        const normalize = (s) =>
+          (s || '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        const activeButtons = Array.from(
+          document.querySelectorAll('.btn-check.active, .btn-check-radio.active, .btn-check-card.active, .btn-check-card-radio.active')
+        );
+        const activeTitles = activeButtons
+          .map((btn) => (btn.getAttribute('title') || btn.textContent || '').trim())
+          .filter(Boolean);
+
+        const allActive = activeButtons.some((btn) => {
+          const text = normalize((btn.getAttribute('title') || '') + ' ' + (btn.textContent || ''));
+          return text.includes('TODOS') || text.includes('ALL') || !!btn.querySelector('one-translate[resource="lblAll"]');
+        });
+
+        return {
+          activeCount: activeTitles.length,
+          allActive,
+          sample: activeTitles.slice(0, 5),
+        };
+      });
+
+      console.log(
+        `[PASSO 10] Ativos no modal: ${activeDeptInfo.activeCount}; todosAtivo=${activeDeptInfo.allActive}; amostra=${activeDeptInfo.sample.join(' | ')}`
+      );
+
+      // Se o modal mudou e não conseguimos clicar, segue em modo best-effort
+      // para não bloquear toda a geração do relatório.
+      if (requestAllDepartments && deptCount === 0) {
+        console.log('[PASSO 10] ⚠️ Nenhum departamento clicado. Continuando em modo best-effort para não interromper o relatório.');
+      }
+
+      await sleep(1000);
 
       // Confirma seleção de departamentos
-      const deptConfirmSelectors = [
-        'button[ng-click*="confirm"]',
-        'button[ng-click*="apply"]',
-        '.btn-primary',
-        '.btn-ok',
-        '.btn-apply',
-      ];
-      const hasDeptConfirm = await hasVisibleSelector(page, deptConfirmSelectors);
-      if (hasDeptConfirm) {
-        try {
-          await clickVisible(page, deptConfirmSelectors, 'Botão de confirmação do departamento não estava clicável.');
-        } catch (_) {
-          await page.keyboard.press('Enter');
+      const deptConfirmed = await page.evaluate(() => {
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+
+        const filterRoot = Array.from(
+          document.querySelectorAll('#one-search-modal-content, .one-search-modal-content, [id*="one-search-modal-content"], [class*="modal"], [role="dialog"]')
+        ).find(isVisible);
+
+        if (filterRoot) {
+          const applyButtons = Array.from(
+            filterRoot.querySelectorAll('button[ng-click*="applyFilters"], .btn-blue, .btn-primary, button[ng-click*="confirm"], button[ng-click*="apply"]')
+          ).filter(isVisible);
+
+          const preferred = applyButtons.find((btn) => {
+            const txt = (btn.textContent || '').toLowerCase();
+            return txt.includes('aplicar') || txt.includes('confirm') || txt.includes('ok');
+          }) || applyButtons[0];
+
+          if (preferred) {
+            preferred.click();
+            return true;
+          }
         }
-        await sleep(1500);
-      } else {
+
+        // Procura por botão com ícone "check"
+        const buttons = Array.from(document.querySelectorAll('button'));
+        for (const btn of buttons) {
+          if (!isVisible(btn)) continue;
+          const hasCheck = btn.querySelector('em.material-icons');
+          if (hasCheck && (hasCheck.textContent === 'check' || hasCheck.textContent === 'done')) {
+            btn.click();
+            return true;
+          }
+        }
+
+        // Fallback: botão azul/primário
+        const primaryBtns = document.querySelectorAll('.btn-blue, .btn-primary, button[ng-click*="confirm"], button[ng-click*="apply"]');
+        for (const btn of primaryBtns) {
+          if (isVisible(btn)) {
+            btn.click();
+            return true;
+          }
+        }
+
+        return false;
+      });
+
+      if (!deptConfirmed) {
+        // Tenta Enter como última opção
         await page.keyboard.press('Enter');
-        await sleep(1500);
       }
+      await sleep(1500);
     }
 
-    // ── PASSO 11: Aguardar e extrair tabela ───────────────────────────────────
+    // ── PASSO 11: Aguardar e extrair requisições ─────────────────────────────
     onProgress(88, 'Aguardando geração dos dados...');
-    await page.waitForSelector('table', { timeout: 20000 });
-    await sleep(1500);
+    
+    // No HITS, após fechar o modal, aparece um overlay de "block-ui". 
+    // Precisamos esperar ele sumir antes de ler a tabela.
+    try {
+      await page.waitForFunction(() => 
+        !document.querySelector('.block-ui-visible, .block-ui-active, [aria-busy="true"]'),
+        { timeout: 15000 }
+      );
+    } catch (e) {
+      console.log('[PASSO 11] Timeout esperando overlay sumir, continuando...');
+    }
 
-    onProgress(93, 'Extraindo dados da tabela...');
+    await page.waitForSelector('table', { timeout: 10000 }).catch(() => {});
+    await sleep(3000); // Tempo para o Angular renderizar as linhas
+
+    // Scroll to force all lazy-rendered requisition blocks to load
+    onProgress(90, 'Carregando todas as requisições...');
+    let prevScrollHeight = -1;
+    let prevProductRowCount = -1;
+    let stablePasses = 0;
+    for (let pass = 0; pass < 60; pass++) {
+      const metrics = await page.evaluate(() => {
+        const scrollContainers = Array.from(document.querySelectorAll('div, section, main, article')).filter((el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(el);
+          const hasScrollableY = ['auto', 'scroll', 'overlay'].includes(style.overflowY);
+          return (hasScrollableY || el.classList.contains('listBody') || el.classList.contains('report-table')) && el.querySelector('table');
+        });
+
+        const h = Math.max(
+          document.documentElement ? document.documentElement.scrollHeight : 0,
+          document.body ? document.body.scrollHeight : 0
+        );
+
+        window.scrollTo(0, h);
+        scrollContainers.forEach((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+
+        const productRows = document.querySelectorAll('tbody[ng-repeat="product in item.Items"] tr, tbody[ng-repeat="product in item.Items"] td[ng-bind-html="product.ProductNameAndObservation"]').length;
+
+        return { h, productRows };
+      });
+      await sleep(500);
+
+      if (metrics.h === prevScrollHeight && metrics.productRows === prevProductRowCount) {
+        stablePasses += 1;
+      } else {
+        stablePasses = 0;
+      }
+
+      if (stablePasses >= 3 && pass >= 5) break;
+
+      prevScrollHeight = metrics.h;
+      prevProductRowCount = metrics.productRows;
+    }
+    await sleep(1000);
+
+    onProgress(93, 'Extraindo dados das requisições...');
+
+    // Save debug snapshot of report page for diagnostics
+    await captureDebugSnapshot(page, 'report-page');
 
     const tableData = await page.evaluate(() => {
+      const norm = (s) =>
+        (s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      const clean = (s) => (s || '').replace(/\u00a0/g, ' ').replace(/\s+\n/g, '\n').trim();
+
+      const readCell = (cell) => {
+        if (!cell) return '';
+        return clean(cell.innerText || cell.textContent || '');
+      };
+
       const rows = [];
-      const tableRows = document.querySelectorAll('table tbody tr');
-      tableRows.forEach((tr) => {
-        const cells = Array.from(tr.querySelectorAll('td'));
-        const rowData = cells.map((td) => td.textContent.trim());
-        if (rowData.some((c) => c !== '')) rows.push(rowData);
-      });
+      const trList = Array.from(document.querySelectorAll('table.flat-table tbody[ng-repeat="product in item.Items"] tr'));
+
+      for (const row of trList) {
+        const productCell = row.querySelector('td[ng-bind-html*="ProductNameAndObservation"]');
+        if (!productCell) continue;
+
+        const productName = readCell(productCell);
+        if (!productName) continue;
+
+        const productNorm = norm(productName);
+        if (
+          productNorm === 'total' ||
+          productNorm === 'subtotal' ||
+          productNorm.startsWith('total ') ||
+          productNorm.startsWith('subtotal ')
+        ) {
+          continue;
+        }
+
+        const solicitado = readCell(row.querySelector('td[ng-bind="product.Quantity"]'));
+        const atendido = readCell(row.querySelector('td[ng-bind="product.Attended"]'));
+        const pendente = readCell(row.querySelector('td[ng-bind="product.Pending"]'));
+        const custoTotal = readCell(row.querySelector('td[ng-bind*="product.CostTotal"]'));
+
+        if (!solicitado && !atendido && !pendente && !custoTotal) continue;
+
+        rows.push([productName, solicitado, atendido, pendente, custoTotal]);
+      }
+
       return rows;
     });
 
@@ -553,7 +1044,7 @@ async function scrapeReport({ username, password, startDate, endDate, department
 
     // ── PASSO 12: Gerar CSV ───────────────────────────────────────────────────
     onProgress(97, 'Gerando arquivo CSV...');
-    const headers = ['Produto', 'Solicitado', 'Atendido', 'Pendente (Qtd)', 'Pendente (Valor)'];
+    const headers = ['Produto', 'Solicitado', 'Atendido', 'Pendente', 'Custo Total'];
     const csv = toCSV(headers, tableData);
 
     onProgress(100, 'Relatório gerado com sucesso!');
